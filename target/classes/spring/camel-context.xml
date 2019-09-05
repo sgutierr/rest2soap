@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:camel="http://camel.apache.org/schema/spring"
+       xmlns:cxf="http://camel.apache.org/schema/cxf"
+       xsi:schemaLocation="
+       http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://camel.apache.org/schema/cxf http://camel.apache.org/schema/cxf/camel-cxf.xsd
+       http://camel.apache.org/schema/spring http://camel.apache.org/schema/spring/camel-spring.xsd">
+
+
+  <!-- helper to construct STUB response -->
+  <bean id="bonjour-response" class="learn.cxf.BonjourResponse">
+    <property name="message" value="dummy" />
+    <property name="status" value="ok" />
+  </bean> 
+
+
+  <!-- Define a traditional camel context here -->
+  <camelContext id="camel" xmlns="http://camel.apache.org/schema/spring">
+
+
+    <!-- REST config -->
+    <restConfiguration component="netty4-http" host="0.0.0.0" port="10000"/>
+
+    <rest path="/say">
+        <post uri="hello" type="learn.cxf.Bonjour" bindingMode="json" consumes="application/json">
+            <to uri="direct:process-request"/>
+        </post>
+    </rest>
+
+
+    <!-- Main implementation -->
+    <route id="process-request">
+        <from uri="direct:process-request"/>
+
+        <log message="got request, ${body}"/>
+
+        <!-- transform JSON to SOAP -->
+        <to uri="dataformat:soapjaxb:marshal?contextPath=learn.cxf"/>
+
+        <!-- invoke SOAP backend -->
+        <to uri="direct:call_backend"/>
+
+        <!-- transform response from SOAP to JSON -->
+        <to uri="dataformat:soapjaxb:unmarshal?contextPath=learn.cxf"/>
+
+        <log message="END of processing."/>
+    </route>
+
+    <!-- call to stub -->
+    <route id="call_backend">
+        <from uri="direct:call_backend"/>
+            <removeHeaders pattern="*"/>
+            
+            <!-- invocation to backend -->
+            <to uri="netty4-http:localhost:20000/mycxfserver/hello"/>
+            <convertBodyTo type="String"/>
+            <log message="soap response: ${body}"/>
+    </route>
+        
+
+
+    <!-- SOAP STUB -->
+    <route id="my-cxf-route">
+      <from uri="netty4-http:0.0.0.0:20000/mycxfserver/hello"/>
+
+      <!-- from SOAP to POJO -->
+      <to uri="dataformat:soapjaxb:unmarshal?contextPath=learn.cxf"/>
+
+      <!-- prepare response  -->
+      <bean ref="bonjour-response" method="setMessage('Hello ${body.name} ${body.nickname}')"/>
+      <setBody>
+        <simple>ref:bonjour-response</simple>
+      </setBody>
+
+      <!-- from POJO to SOAP -->
+      <to uri="dataformat:soapjaxb:marshal?contextPath=learn.cxf"/>
+
+    </route>
+
+
+
+  </camelContext>
+
+</beans>
